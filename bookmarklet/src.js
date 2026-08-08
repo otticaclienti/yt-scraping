@@ -51,20 +51,40 @@
     return "";
   }
 
+  function pushVid(acc, seen, id, title, pub, len) {
+    if (!id || seen[id]) return;
+    seen[id] = 1;
+    acc.push({ videoId: id, title: title || "(senza titolo)", publishedTimeText: pub || "", lengthText: len || "" });
+  }
+  // Titolo nel nuovo formato lockupViewModel.
+  function lockupTitle(o) {
+    try {
+      var t = o.metadata.lockupMetadataViewModel.title;
+      return typeof t === "string" ? t : (t && t.content) || "";
+    } catch (e) { return ""; }
+  }
+  // Data relativa ("3 settimane fa") nel nuovo formato.
+  function lockupRelTime(o) {
+    var found = "";
+    (function w(x) {
+      if (found || !x || typeof x !== "object") return;
+      if (typeof x.content === "string" && /\b(fa|ago)\b/i.test(x.content)) { found = x.content; return; }
+      for (var k in x) w(x[k]);
+    })(o.metadata || o);
+    return found;
+  }
+
   function collectVideos(obj, acc, seen) {
     if (!obj || typeof obj !== "object") return;
     if (Array.isArray(obj)) { for (var i = 0; i < obj.length; i++) collectVideos(obj[i], acc, seen); return; }
-    if (obj.videoId && (obj.title || obj.headline)) {
-      var id = obj.videoId;
-      if (!seen[id]) {
-        seen[id] = 1;
-        acc.push({
-          videoId: id,
-          title: textOf(obj.title) || textOf(obj.headline) || "(senza titolo)",
-          publishedTimeText: textOf(obj.publishedTimeText),
-          lengthText: textOf(obj.lengthText),
-        });
-      }
+    // Formato classico: videoRenderer / gridVideoRenderer (campo videoId).
+    if (typeof obj.videoId === "string" && (obj.title || obj.headline || obj.lengthText)) {
+      pushVid(acc, seen, obj.videoId, textOf(obj.title) || textOf(obj.headline), textOf(obj.publishedTimeText), textOf(obj.lengthText));
+    }
+    // Formato nuovo: lockupViewModel (campo contentId, solo i video).
+    else if (typeof obj.contentId === "string" && obj.contentId.length === 11 &&
+             obj.metadata && (!obj.contentType || /VIDEO/.test(obj.contentType))) {
+      pushVid(acc, seen, obj.contentId, lockupTitle(obj), lockupRelTime(obj), "");
     }
     for (var k in obj) collectVideos(obj[k], acc, seen);
   }
@@ -225,18 +245,28 @@
   }
   function fetchText(url) { return fetch(url, { credentials: "include" }).then(function (r) { if (!r.ok) throw new Error("HTTP " + r.status); return r.text(); }); }
 
+  function ytcfgGet(k) { try { return (window.ytcfg && ytcfg.get) ? ytcfg.get(k) : null; } catch (e) { return null; } }
+  function initialFromHtml(html) {
+    var ms = ["var ytInitialData = ", 'window["ytInitialData"] = ', "ytInitialData = "];
+    for (var i = 0; i < ms.length; i++) { var o = extractJsonAfter(html, ms[i]); if (o) return o; }
+    return null;
+  }
+
   function getVideos(onProg) {
     var base = channelBase();
     return fetchText(base + "/videos").then(function (html) {
-      var initial = extractJsonAfter(html, "var ytInitialData") || (window.ytInitialData ? window.ytInitialData : null);
-      if (!initial) throw new Error("Non riesco a leggere l'elenco del canale.");
-      var apiKey = (html.match(/"INNERTUBE_API_KEY":"([^"]+)"/) || [])[1];
-      var cver = (html.match(/"INNERTUBE_CONTEXT_CLIENT_VERSION":"([^"]+)"/) || [])[1] || (html.match(/"clientVersion":"([\d.]+)"/) || [])[1] || "2.20240101.00.00";
       var acc = [], seen = {};
-      collectVideos(initial, acc, seen);
+      var initial = initialFromHtml(html);
+      if (initial) collectVideos(initial, acc, seen);
+      // include anche i video gia' caricati nella pagina aperta ora
+      if (window.ytInitialData) collectVideos(window.ytInitialData, acc, seen);
+      if (acc.length === 0 && !initial && !window.ytInitialData)
+        throw new Error("Non riesco a leggere l'elenco del canale.");
       onProg(acc.length);
-      var token = findContinuation(initial);
-      var ctx = { client: { hl: "it", gl: "IT", clientName: "WEB", clientVersion: cver } };
+      var apiKey = ytcfgGet("INNERTUBE_API_KEY") || (html.match(/"INNERTUBE_API_KEY":"([^"]+)"/) || [])[1];
+      var cver = ytcfgGet("INNERTUBE_CONTEXT_CLIENT_VERSION") || (html.match(/"INNERTUBE_CONTEXT_CLIENT_VERSION":"([^"]+)"/) || [])[1] || "2.20240101.00.00";
+      var token = findContinuation(initial) || findContinuation(window.ytInitialData);
+      var ctx = ytcfgGet("INNERTUBE_CONTEXT") || { client: { hl: "it", gl: "IT", clientName: "WEB", clientVersion: cver } };
       var guard = 0;
       function more() {
         if (!token || !apiKey || guard >= 200) return Promise.resolve();
