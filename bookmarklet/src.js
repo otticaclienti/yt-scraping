@@ -252,24 +252,31 @@
     return null;
   }
 
-  function getVideos(onProg) {
+  // onBatch(list, done) viene chiamato dopo ogni blocco caricato, cosi' la UI
+  // mostra subito i primi video e continua ad aggiungerli in sottofondo.
+  function getVideos(onBatch) {
     var base = channelBase();
+    var acc = [], seen = {};
+    function snapshot() {
+      return acc.map(function (v, i) {
+        return { index: i + 1, videoId: v.videoId, title: v.title, url: "https://www.youtube.com/watch?v=" + v.videoId,
+          publishedTimeText: v.publishedTimeText, lengthText: v.lengthText, uploadDate: null };
+      });
+    }
     return fetchText(base + "/videos").then(function (html) {
-      var acc = [], seen = {};
       var initial = initialFromHtml(html);
       if (initial) collectVideos(initial, acc, seen);
-      // include anche i video gia' caricati nella pagina aperta ora
       if (window.ytInitialData) collectVideos(window.ytInitialData, acc, seen);
-      if (acc.length === 0 && !initial && !window.ytInitialData)
-        throw new Error("Non riesco a leggere l'elenco del canale.");
-      onProg(acc.length);
+      if (acc.length === 0) throw new Error("Non riesco a leggere l'elenco del canale.");
+      onBatch(snapshot(), false); // <-- mostra subito i primi video e i comandi
+
       var apiKey = ytcfgGet("INNERTUBE_API_KEY") || (html.match(/"INNERTUBE_API_KEY":"([^"]+)"/) || [])[1];
       var cver = ytcfgGet("INNERTUBE_CONTEXT_CLIENT_VERSION") || (html.match(/"INNERTUBE_CONTEXT_CLIENT_VERSION":"([^"]+)"/) || [])[1] || "2.20240101.00.00";
       var token = findContinuation(initial) || findContinuation(window.ytInitialData);
       var ctx = ytcfgGet("INNERTUBE_CONTEXT") || { client: { hl: "it", gl: "IT", clientName: "WEB", clientVersion: cver } };
       var guard = 0;
       function more() {
-        if (!token || !apiKey || guard >= 200) return Promise.resolve();
+        if (!token || !apiKey || guard >= 300) return Promise.resolve();
         guard++;
         return fetch("/youtubei/v1/browse?key=" + apiKey, {
           method: "POST", credentials: "include", headers: { "Content-Type": "application/json" },
@@ -278,18 +285,13 @@
           if (!data) return;
           var before = acc.length;
           collectVideos(data, acc, seen);
-          onProg(acc.length);
           token = findContinuation(data);
-          if (acc.length === before) return;
+          if (acc.length === before) return; // niente di nuovo: stop
+          onBatch(snapshot(), false);
           return more();
-        });
+        }).catch(function () { /* errore di rete a meta': fermati con quel che c'e' */ });
       }
-      return more().then(function () {
-        return acc.map(function (v, i) {
-          return { index: i + 1, videoId: v.videoId, title: v.title, url: "https://www.youtube.com/watch?v=" + v.videoId,
-            publishedTimeText: v.publishedTimeText, lengthText: v.lengthText, uploadDate: null };
-        });
-      });
+      return more().then(function () { return snapshot(); });
     });
   }
 
@@ -486,11 +488,18 @@
     step();
   };
 
-  // ---- avvio: carica la lista
-  getVideos(function (n) { status.textContent = "Trovati " + n + " video…"; }).then(function (list) {
-    videos = list; renderList();
-    status.textContent = "Trovati " + videos.length + " video. Seleziona e scarica.";
-    tools.style.display = "flex"; foot.style.display = "flex";
+  // ---- avvio: carica la lista (mostrandola man mano che arriva)
+  function showBatch(list, done) {
+    videos = list;
+    renderList();
+    tools.style.display = "flex";
+    foot.style.display = "flex";
+    status.textContent = done
+      ? "Trovati " + videos.length + " video. Seleziona e scarica."
+      : "Carico… " + videos.length + " video (puoi gia' selezionare).";
+  }
+  getVideos(function (list) { showBatch(list, false); }).then(function (list) {
+    showBatch(list, true);
   }, function (e) {
     status.innerHTML = "<b style='color:#c00'>Errore:</b> " + esc(e.message) + "<br><span style='color:#777'>Apri la pagina di un canale (es. youtube.com/@nome) e riprova.</span>";
   });
