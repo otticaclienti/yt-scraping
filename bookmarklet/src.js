@@ -9,6 +9,10 @@
 (function () {
   "use strict";
 
+  // Diagnostica: scrive nel riquadro dove siamo arrivati (utile se si blocca).
+  var __statusEl = null;
+  function dbg(m) { if (__statusEl) { try { __statusEl.textContent = m; } catch (e) {} } }
+
   if (!location.hostname.endsWith("youtube.com")) {
     alert("Apri prima un canale YouTube (es. youtube.com/@nomecanale), poi clicca questo preferito.");
     return;
@@ -243,7 +247,14 @@
     var u = location.origin + location.pathname.replace(/\/(videos|streams|featured|shorts|playlists|community|about)?$/, "");
     return u.replace(/\/+$/, "");
   }
-  function fetchText(url) { return fetch(url, { credentials: "include" }).then(function (r) { if (!r.ok) throw new Error("HTTP " + r.status); return r.text(); }); }
+  function fetchText(url) {
+    var ctrl = new AbortController();
+    var to = setTimeout(function () { ctrl.abort(); }, 20000);
+    return fetch(url, { credentials: "include", signal: ctrl.signal }).then(
+      function (r) { clearTimeout(to); if (!r.ok) throw new Error("HTTP " + r.status); return r.text(); },
+      function (e) { clearTimeout(to); throw new Error(e && e.name === "AbortError" ? "timeout (20s)" : "rete: " + (e && e.message || e)); }
+    );
+  }
 
   function ytcfgGet(k) { try { return (window.ytcfg && ytcfg.get) ? ytcfg.get(k) : null; } catch (e) { return null; } }
   function initialFromHtml(html) {
@@ -263,11 +274,14 @@
           publishedTimeText: v.publishedTimeText, lengthText: v.lengthText, uploadDate: null };
       });
     }
+    dbg("1/3 Leggo la pagina del canale (" + base + "/videos)…");
     return fetchText(base + "/videos").then(function (html) {
+      dbg("2/3 Interpreto l'elenco…");
       var initial = initialFromHtml(html);
       if (initial) collectVideos(initial, acc, seen);
       if (window.ytInitialData) collectVideos(window.ytInitialData, acc, seen);
-      if (acc.length === 0) throw new Error("Non riesco a leggere l'elenco del canale.");
+      dbg("3/3 Trovati " + acc.length + " video iniziali, preparo la lista…");
+      if (acc.length === 0) throw new Error("elenco vuoto: la pagina non contiene video riconoscibili");
       onBatch(snapshot(), false); // <-- mostra subito i primi video e i comandi
 
       var apiKey = ytcfgGet("INNERTUBE_API_KEY") || (html.match(/"INNERTUBE_API_KEY":"([^"]+)"/) || [])[1];
@@ -355,6 +369,7 @@
 
   var status = el("div", "margin-bottom:8px;color:#555", "Carico l'elenco dei video…");
   body.appendChild(status);
+  __statusEl = status;
 
   var tools = el("div", "display:none;gap:6px;flex-wrap:wrap;margin-bottom:8px");
   var filterInp = el("input", "flex:1;min-width:150px;padding:6px 8px;border:1px solid #ccc;border-radius:6px");
@@ -490,17 +505,21 @@
 
   // ---- avvio: carica la lista (mostrandola man mano che arriva)
   function showBatch(list, done) {
-    videos = list;
-    renderList();
-    tools.style.display = "flex";
-    foot.style.display = "flex";
-    status.textContent = done
-      ? "Trovati " + videos.length + " video. Seleziona e scarica."
-      : "Carico… " + videos.length + " video (puoi gia' selezionare).";
+    try {
+      videos = list;
+      renderList();
+      tools.style.display = "flex";
+      foot.style.display = "flex";
+      status.textContent = done
+        ? "Trovati " + videos.length + " video. Seleziona e scarica."
+        : "Carico… " + videos.length + " video (puoi gia' selezionare).";
+    } catch (e) {
+      status.innerHTML = "<b style='color:#c00'>Errore nel mostrare la lista:</b> " + esc(e && e.message || e);
+    }
   }
   getVideos(function (list) { showBatch(list, false); }).then(function (list) {
     showBatch(list, true);
-  }, function (e) {
-    status.innerHTML = "<b style='color:#c00'>Errore:</b> " + esc(e.message) + "<br><span style='color:#777'>Apri la pagina di un canale (es. youtube.com/@nome) e riprova.</span>";
+  }).catch(function (e) {
+    status.innerHTML = "<b style='color:#c00'>Errore:</b> " + esc(e && e.message || e) + "<br><span style='color:#777'>Apri la pagina di un canale (es. youtube.com/@nome) e riprova.</span>";
   });
 })();
