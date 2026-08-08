@@ -6,6 +6,17 @@ trascrizioni** in testo pulito, un file per video, preferendo l'italiano.
 
 Non serve alcuna API key di Google.
 
+## Due modi per usarlo
+
+- **Da terminale (Python)** — questo README qui sotto. Più affidabile, ideale
+  per automazioni.
+- **Da Chrome (estensione)** — nessun Python, nessun terminale: vedi
+  [`extension/README.md`](extension/README.md). Fa selezione e trascrizioni
+  direttamente nel browser e scarica un unico ZIP con un file per video.
+
+Le due versioni condividono la stessa sintassi di selezione (anno, intervallo
+di date, indici, `last:N`, `all`).
+
 ## Come funziona
 
 1. Legge l'elenco dei video del canale (veloce, tramite `yt-dlp`).

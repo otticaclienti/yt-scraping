@@ -1,0 +1,9 @@
+{
+  "name": "yt-transcript-extension-tests",
+  "private": true,
+  "type": "module",
+  "description": "Solo per eseguire i test Node della logica pura; l'estensione Chrome non usa questo file.",
+  "scripts": {
+    "test": "node --test tests/logic.test.mjs"
+  }
+}

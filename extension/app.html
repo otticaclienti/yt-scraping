@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="it">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Estrattore Trascrizioni YouTube</title>
+    <style>
+      :root {
+        --bg: #f7f7f8; --fg: #1c1c1e; --muted: #6b6b70; --line: #e2e2e6;
+        --card: #ffffff; --accent: #c00; --accent-fg: #fff; --ok: #137333; --warn: #b06000;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #1a1a1b; --fg: #ececed; --muted: #9a9a9f; --line: #333;
+          --card: #242426; --accent: #ff4d4d; --accent-fg: #1a1a1b; --ok: #4caf50; --warn: #e0a030;
+        }
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0; background: var(--bg); color: var(--fg);
+        font: 15px/1.5 -apple-system, Segoe UI, Roboto, sans-serif;
+      }
+      .wrap { max-width: 980px; margin: 0 auto; padding: 24px 16px 80px; }
+      h1 { font-size: 20px; margin: 0 0 4px; }
+      .sub { color: var(--muted); margin: 0 0 20px; }
+      .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 16px; margin-bottom: 16px; }
+      label { font-weight: 600; font-size: 13px; display: block; margin-bottom: 6px; }
+      input[type="text"] {
+        width: 100%; padding: 10px 12px; border: 1px solid var(--line);
+        border-radius: 8px; background: var(--bg); color: var(--fg); font-size: 14px;
+      }
+      .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: end; }
+      .row > div { flex: 1; min-width: 180px; }
+      button {
+        padding: 10px 14px; border: 1px solid var(--line); border-radius: 8px;
+        background: var(--card); color: var(--fg); font-size: 14px; cursor: pointer;
+      }
+      button:hover { border-color: var(--muted); }
+      button.primary { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); font-weight: 600; }
+      button:disabled { opacity: .5; cursor: default; }
+      .toolbar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 12px; }
+      .toolbar .grow { flex: 1; min-width: 200px; }
+      .hint { color: var(--muted); font-size: 12px; margin-top: 6px; }
+      table { width: 100%; border-collapse: collapse; }
+      th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); font-size: 13px; vertical-align: top; }
+      th { position: sticky; top: 0; background: var(--card); }
+      td.num, td.dur, td.date { white-space: nowrap; color: var(--muted); }
+      .tablewrap { max-height: 460px; overflow: auto; border: 1px solid var(--line); border-radius: 10px; }
+      .status { font-size: 14px; margin: 8px 0; }
+      .bar { height: 8px; background: var(--line); border-radius: 6px; overflow: hidden; }
+      .bar > i { display: block; height: 100%; background: var(--accent); width: 0; transition: width .15s; }
+      .skip { color: var(--warn); }
+      .ok { color: var(--ok); }
+      a.dl { display: inline-block; margin-top: 10px; font-weight: 600; color: var(--accent); }
+      .count { font-weight: 700; }
+      details summary { cursor: pointer; color: var(--muted); font-size: 13px; }
+      code { background: var(--bg); padding: 1px 5px; border-radius: 4px; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <h1>Estrattore Trascrizioni YouTube</h1>
+      <p class="sub">Incolla l'URL di un canale, scegli i video ed estrai le trascrizioni (italiano preferito). Un file per video, in un unico ZIP.</p>
+
+      <div class="card">
+        <label for="channel">URL del canale</label>
+        <div class="row">
+          <div style="flex: 3">
+            <input id="channel" type="text" placeholder="https://www.youtube.com/@nomecanale" />
+          </div>
+          <div style="flex: 0 0 auto">
+            <button id="load" class="primary">Carica video</button>
+          </div>
+        </div>
+        <div class="hint">Puoi anche cliccare l'icona dell'estensione mentre sei sulla pagina di un canale: l'URL viene compilato da solo.</div>
+        <div id="loadStatus" class="status"></div>
+      </div>
+
+      <div id="panel" class="card" hidden>
+        <div class="toolbar">
+          <button data-quick="all">Seleziona tutti</button>
+          <button data-quick="none">Deseleziona</button>
+          <input id="filter" class="grow" type="text" placeholder="Filtro: es. year:2026  oppure  date:2026-01-01..2026-06-30  oppure  3 7 15-18" />
+          <button id="applyFilter">Applica</button>
+          <button id="resolveDates">Risolvi date</button>
+        </div>
+        <details>
+          <summary>Come funziona il filtro</summary>
+          <div class="hint">
+            Combinabili (spazio = unione): <code>all</code>, <code>N</code>, <code>N-M</code>,
+            <code>last:20</code>, <code>year:2026</code>, <code>date:2026-01-01..2026-06-30</code>,
+            <code>date:2026-03-01..</code>, <code>date:..2025-12-31</code>.
+            I filtri per anno/data richiedono le date esatte: premi prima <b>Risolvi date</b> (o verranno risolte al volo).
+          </div>
+        </details>
+
+        <div id="listStatus" class="status"></div>
+
+        <div class="tablewrap">
+          <table>
+            <thead>
+              <tr>
+                <th style="width: 34px"><input type="checkbox" id="checkAll" /></th>
+                <th style="width: 44px">#</th>
+                <th style="width: 110px">Data</th>
+                <th style="width: 70px">Durata</th>
+                <th>Titolo</th>
+              </tr>
+            </thead>
+            <tbody id="rows"></tbody>
+          </table>
+        </div>
+
+        <div class="row" style="margin-top: 14px; align-items: center">
+          <div style="flex: 0 0 auto">
+            <label for="langs">Lingue preferite</label>
+            <input id="langs" type="text" value="it" style="width: 140px" />
+          </div>
+          <div style="flex: 1; text-align: right">
+            <span class="count" id="selCount">0</span> selezionati
+            &nbsp;
+            <button id="download" class="primary" disabled>Scarica trascrizioni</button>
+          </div>
+        </div>
+      </div>
+
+      <div id="result" class="card" hidden>
+        <div id="dlStatus" class="status"></div>
+        <div class="bar"><i id="dlBar"></i></div>
+        <div id="dlSummary" style="margin-top: 14px"></div>
+      </div>
+    </div>
+
+    <script type="module" src="app.js"></script>
+  </body>
+</html>

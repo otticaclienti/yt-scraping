@@ -11,3 +11,6 @@ output/
 
 # Cache locale (elenco video / date risolte)
 .cache/
+
+# Node (test estensione)
+extension/node_modules/

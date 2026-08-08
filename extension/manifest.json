@@ -1,0 +1,10 @@
+{
+  "manifest_version": 3,
+  "name": "Estrattore Trascrizioni YouTube",
+  "version": "0.1.0",
+  "description": "Dato un canale YouTube, scegli quali video prendere ed estrai le trascrizioni (italiano preferito), un file per video.",
+  "permissions": ["activeTab"],
+  "host_permissions": ["*://*.youtube.com/*"],
+  "background": { "service_worker": "background.js" },
+  "action": { "default_title": "Estrai trascrizioni da questo canale YouTube" }
+}
